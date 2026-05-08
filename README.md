@@ -4,6 +4,8 @@ English | [한국어](docs/README_ko.md) | [Français](docs/README_fr.md) | [简
 
 ## About this Fork
 
+***Made with** ❤️ in Ho Chi Minh City, Vietnam by [Sao Tin Developers](https://github.com/SaoTin) led by [SitriSaleos](https://github.com/SitriSaleos)* 
+
 **UnComicTranslate** is a community-driven fork focused on providing open access to powerful comic translation capabilities using State-of-the-Art (SOTA) Large Language Models.
 
 **Our Mission:**
