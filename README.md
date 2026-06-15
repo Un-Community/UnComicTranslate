@@ -42,8 +42,7 @@ Automatic comic translation tool supporting multiple languages and LLM providers
 ```bash
 git clone https://github.com/SitriSaleos/UnComicTranslate
 cd UnComicTranslate
-uv init --python 3.12
-uv add -r requirements.txt --compile-bytecode
+uv sync
 ```
 
 5. (Optional) For NVIDIA GPU support:
