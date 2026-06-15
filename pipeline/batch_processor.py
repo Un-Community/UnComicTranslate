@@ -54,12 +54,13 @@ class BatchProcessor:
         self.block_detection = block_detection_handler
         self.inpainting = inpainting_handler
         self.ocr_handler = ocr_handler
+        self.render_queue = []
 
     def skip_save(self, directory, timestamp, base_name, extension, archive_bname, image):
-        path = os.path.join(directory, f"comic_translate_{timestamp}", "translated_images", archive_bname)
+        path = os.path.normpath(os.path.join(directory, f"comic_translate_{timestamp}", "translated_images", archive_bname))
         if not os.path.exists(path):
             os.makedirs(path, exist_ok=True)
-        imk.write_image(os.path.join(path, f"{base_name}_translated{extension}"), image)
+        imk.write_image(os.path.normpath(os.path.join(path, f"{base_name}_translated{extension}")), image)
 
     def emit_progress(self, index, total, step, steps, change_name):
         """Wrapper around main_page.progress_update.emit that logs a human-readable stage."""
@@ -92,6 +93,7 @@ class BatchProcessor:
         timestamp = datetime.now().strftime("%b-%d-%Y_%I-%M-%S%p")
         image_list = selected_paths if selected_paths is not None else self.main_page.image_files
         total_images = len(image_list)
+        self.render_queue = []
 
         for index, image_path in enumerate(image_list):
 
@@ -225,17 +227,28 @@ class BatchProcessor:
             inpaint_input_img = self.inpainting.inpainter_cache(image, mask, config)
             inpaint_input_img = imk.convert_scale_abs(inpaint_input_img)
 
-            # Saving cleaned image
-            patches = self.inpainting.get_inpainted_patches(mask, inpaint_input_img)
-            self.main_page.patches_processed.emit(patches, image_path)
-
-            # inpaint_input_img is already in RGB format
-
+            # Export Cleaned Image
             if export_settings['export_inpainted_image']:
                 path = os.path.join(directory, f"comic_translate_{timestamp}", "cleaned_images", archive_bname)
                 if not os.path.exists(path):
                     os.makedirs(path, exist_ok=True)
-                imk.write_image(os.path.join(path, f"{base_name}_cleaned{extension}"), inpaint_input_img)
+                
+                # We need patches
+                patches = self.inpainting.get_inpainted_patches(mask, inpaint_input_img)
+                # Use a temp renderer - no text items added here so it's safer in a thread,
+                # but still not ideal.
+                try:
+                    temp_renderer = ImageSaveRenderer(image)
+                    temp_renderer.apply_patches(patches)
+                    cleaned_image_rgb = temp_renderer.render_to_image()
+                    cleaned_sv_pth = os.path.normpath(os.path.join(path, f"{base_name}_cleaned{extension}"))
+                    imk.write_image(cleaned_sv_pth, cleaned_image_rgb)
+                except Exception as e:
+                    logger.error(f"Failed to render cleaned image in background: {e}")
+
+            # Process patches for UI
+            patches = self.inpainting.get_inpainted_patches(mask, inpaint_input_img)
+            self.main_page.patches_processed.emit(patches, image_path)
 
             self.emit_progress(index, total_images, 5, 10, False)
             if self.main_page.current_worker and self.main_page.current_worker.is_cancelled:
@@ -442,16 +455,54 @@ class BatchProcessor:
             render_save_dir = os.path.join(directory, f"comic_translate_{timestamp}", "translated_images", archive_bname)
             if not os.path.exists(render_save_dir):
                 os.makedirs(render_save_dir, exist_ok=True)
-            sv_pth = os.path.join(render_save_dir, f"{base_name}_translated{extension}")
+            sv_pth = os.path.normpath(os.path.join(render_save_dir, f"{base_name}_translated{extension}"))
 
-            renderer = ImageSaveRenderer(image)
-            viewer_state = self.main_page.image_states[image_path]['viewer_state'].copy()
-            patches = self.main_page.image_patches.get(image_path, [])
-            renderer.apply_patches(patches)
-            renderer.add_state_to_image(viewer_state)
-            renderer.save_image(sv_pth)
-
+            # Collect rendering tasks to be executed on the main thread
+            render_task = {
+                'image': image,
+                'sv_pth': sv_pth,
+                'viewer_state': self.main_page.image_states[image_path]['viewer_state'].copy(),
+                'patches': self.main_page.image_patches.get(image_path, [])
+            }
+            self.render_queue.append(render_task)
+            
+            # Progress update for the background processing completion
             self.emit_progress(index, total_images, 10, 10, False)
+
+        # Process rendering queue on the main thread if possible, or sequentially here if we must
+        # But to fix the crash, we MUST do it on the main thread.
+        if self.render_queue:
+            logger.info(f"Queueing {len(self.render_queue)} images for rendering on main thread")
+            
+            # For the batch processor, we'll delegate the archiving to the main thread as well
+            archive_tasks = []
+            archive_info_list = self.main_page.file_handler.archive_info
+            if archive_info_list:
+                save_as_settings = settings_page.get_export_settings()['save_as']
+                for archive_index, archive in enumerate(archive_info_list):
+                    archive_path = archive['archive_path']
+                    archive_ext = os.path.splitext(archive_path)[1]
+                    archive_bname = os.path.splitext(os.path.basename(archive_path))[0].strip()
+                    archive_directory = os.path.dirname(archive_path)
+                    save_as_ext = f".{save_as_settings.get(archive_ext.lower(), 'cbz')}"
+
+                    save_dir = os.path.normpath(os.path.join(archive_directory, f"comic_translate_{timestamp}", "translated_images", archive_bname))
+                    check_from = os.path.normpath(os.path.join(archive_directory, f"comic_translate_{timestamp}"))
+                    
+                    archive_tasks.append({
+                        'action': 'make_batch_archive',
+                        'save_as_ext': save_as_ext,
+                        'save_dir': save_dir,
+                        'archive_directory': archive_directory,
+                        'archive_bname': archive_bname,
+                        'check_from': check_from,
+                        'index_input': total_images + archive_index,
+                        'total_images': total_images
+                    })
+
+            # We use a signal to tell the main thread to render these
+            self.main_page.render_batch_requested.emit(self.render_queue + archive_tasks)
+            return
 
         archive_info_list = self.main_page.file_handler.archive_info
         if archive_info_list:

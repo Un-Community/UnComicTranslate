@@ -102,17 +102,20 @@ class TextBlockItem(QGraphicsTextItem):
         self._apply_text_direction()
 
     def _apply_text_direction(self):
-        text_option = self.document().defaultTextOption()
-        # Explicitly cast to Qt.LayoutDirection for strict type enforcement in newer PySide6
-        direction = self.direction
-        if not isinstance(direction, Qt.LayoutDirection):
-            try:
-                direction = Qt.LayoutDirection(direction)
-            except (TypeError, ValueError):
-                direction = Qt.LayoutDirection.LeftToRight
-        
-        text_option.setTextDirection(direction)
-        self.document().setDefaultTextOption(text_option)
+        try:
+            text_option = self.document().defaultTextOption()
+            # Explicitly cast to Qt.LayoutDirection for strict type enforcement in newer PySide6
+            direction = self.direction
+            if not isinstance(direction, Qt.LayoutDirection):
+                try:
+                    direction = Qt.LayoutDirection(direction)
+                except (TypeError, ValueError):
+                    direction = Qt.LayoutDirection.LeftToRight
+            
+            text_option.setTextDirection(direction)
+            self.document().setDefaultTextOption(text_option)
+        except Exception as e:
+            print(f"DEBUG: _apply_text_direction error: {e}")
 
     def set_direction(self, direction):
         # Ensure direction is the correct Enum type
@@ -128,12 +131,15 @@ class TextBlockItem(QGraphicsTextItem):
             self.update()
 
     def set_text(self, text, width):
-        if self.is_html(text):
-            self.setHtml(text)
-            self.setTextWidth(width)
-            self.set_outline(self.outline_color, self.outline_width)
-        else:
-            self.set_plain_text(text)
+        try:
+            if self.is_html(text):
+                self.setHtml(text)
+                self.setTextWidth(width)
+                self.set_outline(self.outline_color, self.outline_width)
+            else:
+                self.set_plain_text(text)
+        except Exception as e:
+            print(f"DEBUG: set_text error: {e}")
 
     def set_plain_text(self, text):
         self.setPlainText(text)
@@ -145,17 +151,20 @@ class TextBlockItem(QGraphicsTextItem):
         return bool(re.search(r'<[^>]+>', text))
 
     def set_font(self, font_family, font_size):
-        if not self.textCursor().hasSelection():
-            self.font_family = font_family
-            self.font_size = font_size
+        try:
+            if not self.textCursor().hasSelection():
+                self.font_family = font_family
+                self.font_size = font_size
 
-        # Ensure minimum font size.
-        font_size = max(1, font_size)
+            # Ensure minimum font size.
+            font_size = max(1, font_size)
 
-        # Fallback to application default font family if none provided
-        effective_family = font_family.strip() if isinstance(font_family, str) and font_family.strip() else QApplication.font().family()
-        font = QFont(effective_family, font_size)
-        self.update_text_format('font', font)
+            # Fallback to application default font family if none provided
+            effective_family = font_family.strip() if isinstance(font_family, str) and font_family.strip() else QApplication.font().family()
+            font = QFont(effective_family, font_size)
+            self.update_text_format('font', font)
+        except Exception as e:
+            print(f"DEBUG: set_font error: {e}")
 
     def set_font_size(self, font_size):
         # Ensure minimum font size.
@@ -203,48 +212,51 @@ class TextBlockItem(QGraphicsTextItem):
         self.update()
 
     def update_text_format(self, attribute, value):
-        cursor = self.textCursor()
-        has_selection = cursor.hasSelection()
+        try:
+            cursor = self.textCursor()
+            has_selection = cursor.hasSelection()
 
-        format_operations = {
-            'color': lambda cf, v: cf.setForeground(v),
-            'font': lambda cf, v: cf.setFont(v),
-            'size': lambda cf, v: cf.setFontPointSize(v),
-            'bold': lambda cf, v: cf.setFontWeight(QFont.Bold if v else QFont.Normal),
-            'italic': lambda cf, v: cf.setFontItalic(v),
-            'underline': lambda cf, v: cf.setFontUnderline(v),
-        }
+            format_operations = {
+                'color': lambda cf, v: cf.setForeground(v),
+                'font': lambda cf, v: cf.setFont(v),
+                'size': lambda cf, v: cf.setFontPointSize(v),
+                'bold': lambda cf, v: cf.setFontWeight(QFont.Bold if v else QFont.Normal),
+                'italic': lambda cf, v: cf.setFontItalic(v),
+                'underline': lambda cf, v: cf.setFontUnderline(v),
+            }
 
-        if attribute not in format_operations:
-            print(f"Unsupported attribute: {attribute}")
-            return
+            if attribute not in format_operations:
+                print(f"Unsupported attribute: {attribute}")
+                return
 
-        char_format = QTextCharFormat()
-        format_operations[attribute](char_format, value)
+            char_format = QTextCharFormat()
+            format_operations[attribute](char_format, value)
 
-        if not has_selection:
-            cursor.select(QTextCursor.SelectionType.Document)    
-  
-        cursor.mergeCharFormat(char_format)
+            if not has_selection:
+                cursor.select(QTextCursor.SelectionType.Document)    
+    
+            cursor.mergeCharFormat(char_format)
 
-        # Update the document's default format
-        doc_format = self.document().defaultTextOption()
-        if attribute == 'color':
-            self.setDefaultTextColor(value)
-        elif attribute == 'font':
-            self.document().setDefaultFont(value)
-        elif attribute == 'size':
-            font = self.document().defaultFont()
-            font.setPointSize(value)
-            self.document().setDefaultFont(font)
-        
-        # Clear the selection by moving the cursor to the end of the document
-        cursor.clearSelection()
-        cursor.movePosition(QTextCursor.End)
+            # Update the document's default format
+            doc_format = self.document().defaultTextOption()
+            if attribute == 'color':
+                self.setDefaultTextColor(value)
+            elif attribute == 'font':
+                self.document().setDefaultFont(value)
+            elif attribute == 'size':
+                font = self.document().defaultFont()
+                font.setPointSize(value)
+                self.document().setDefaultFont(font)
+            
+            # Clear the selection by moving the cursor to the end of the document
+            cursor.clearSelection()
+            cursor.movePosition(QTextCursor.End)
 
-        self.setTextCursor(cursor)
-        self.document().setDefaultTextOption(doc_format)
-        self.update()
+            self.setTextCursor(cursor)
+            self.document().setDefaultTextOption(doc_format)
+            self.update()
+        except Exception as e:
+            print(f"DEBUG: update_text_format error: {e}")
 
     def set_line_spacing(self, spacing):
         self.line_spacing = spacing
@@ -264,31 +276,34 @@ class TextBlockItem(QGraphicsTextItem):
 
     def update_outlines(self):
         """Update the selection outlines when text changes"""
-        if self.outline:
-            # Create an outline for the entire document
-            doc = self.document()
-            char_count = doc.characterCount()
-            
-            # Create an outline info for the entire document
-            new_outline = OutlineInfo(  
-                start = 0,
-                end = max(0, char_count - 1),
-                color = self.outline_color,  
-                width = self.outline_width,
-                type = OutlineType.Full_Document
-            )
-            
-            # Remove any existing full document outline
-            self.selection_outlines = [outline for outline in self.selection_outlines 
-                                     if outline.type != OutlineType.Full_Document]
-            # Add the new one
-            self.selection_outlines.append(new_outline)
-        else:
-            # Remove only the full document outline
-            self.selection_outlines = [outline for outline in self.selection_outlines 
-                                     if outline.type != OutlineType.Full_Document]
+        try:
+            if self.outline:
+                # Create an outline for the entire document
+                doc = self.document()
+                char_count = doc.characterCount()
+                
+                # Create an outline info for the entire document
+                new_outline = OutlineInfo(  
+                    start = 0,
+                    end = max(0, char_count - 1),
+                    color = self.outline_color,  
+                    width = self.outline_width,
+                    type = OutlineType.Full_Document
+                )
+                
+                # Remove any existing full document outline
+                self.selection_outlines = [outline for outline in self.selection_outlines 
+                                        if outline.type != OutlineType.Full_Document]
+                # Add the new one
+                self.selection_outlines.append(new_outline)
+            else:
+                # Remove only the full document outline
+                self.selection_outlines = [outline for outline in self.selection_outlines 
+                                        if outline.type != OutlineType.Full_Document]
 
-        self.update() 
+            self.update() 
+        except Exception as e:
+            print(f"DEBUG: update_outlines error: {e}")
 
     def set_outline(self, outline_color, outline_width):
         # Initialize start and end variables
@@ -349,36 +364,50 @@ class TextBlockItem(QGraphicsTextItem):
         option: QStyleOptionGraphicsItem, 
         widget: QWidget = None
     ):
-
-        # Then handle any selection outlines
-        if self.selection_outlines:
-            doc = self.document().clone()
-            # Clear the document first to only show outlined parts
-            cursor = QTextCursor(doc)
-            cursor.select(QTextCursor.SelectionType.Document)
-            fmt = cursor.charFormat()
-            fmt.setForeground(QColor(0, 0, 0, 0))  # Transparent
-            cursor.mergeCharFormat(fmt)
-
-            # Apply outline colors only to selected regions
-            for outline_info in self.selection_outlines:
-                cursor.setPosition(outline_info.start)
-                cursor.setPosition(outline_info.end, QTextCursor.KeepAnchor)
-                fmt = cursor.charFormat()
-                fmt.setForeground(outline_info.color)
-                cursor.mergeCharFormat(fmt)
-
-                # Draw the outline for this selection
+        # Draw the outline first if needed
+        if self.outline and self.outline_width > 0:
+            # Check if we have complex selection outlines
+            if self.selection_outlines:
+                # Save the current state
+                painter.save()
+                
+                # To draw an outline, we draw the text multiple times in different directions
+                # with the outline color.
                 offsets = [(dx, dy) 
-                    for dx in (-outline_info.width, 0, outline_info.width)
-                    for dy in (-outline_info.width, 0, outline_info.width)
+                    for dx in (-self.outline_width, 0, self.outline_width)
+                    for dy in (-self.outline_width, 0, self.outline_width)
                     if dx != 0 or dy != 0
                 ]
                 
-                for dx, dy in offsets:
-                    painter.save()
-                    painter.translate(dx, dy)
-                    doc.drawContents(painter)
+                # IMPORTANT: cloning a document inside paint() can be unstable in some PySide6 versions
+                # during high-frequency calls or complex scenes. 
+                # Use a try-block to catch potential crashes.
+                try:
+                    temp_doc = self.document().clone()
+                    cursor = QTextCursor(temp_doc)
+                    cursor.select(QTextCursor.SelectionType.Document)
+                    
+                    # Make everything transparent first
+                    fmt = cursor.charFormat()
+                    fmt.setForeground(QColor(0, 0, 0, 0))
+                    cursor.mergeCharFormat(fmt)
+                    
+                    # Apply outline colors
+                    for outline_info in self.selection_outlines:
+                        cursor.setPosition(outline_info.start)
+                        cursor.setPosition(outline_info.end, QTextCursor.KeepAnchor)
+                        fmt = cursor.charFormat()
+                        fmt.setForeground(outline_info.color)
+                        cursor.mergeCharFormat(fmt)
+                    
+                    for dx, dy in offsets:
+                        painter.save()
+                        painter.translate(dx, dy)
+                        temp_doc.drawContents(painter)
+                        painter.restore()
+                except Exception as e:
+                    print(f"DEBUG: paint outline error: {e}")
+                finally:
                     painter.restore()
 
         # Draw the normal text on top

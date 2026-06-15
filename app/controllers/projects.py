@@ -26,11 +26,15 @@ class ProjectController:
         self.main = main
 
     def save_and_make(self, output_path: str):
+        # We MUST run rendering on the main thread.
+        # save_and_make_worker was previously threaded.
+        # We will keep the data preparation threaded, but emit a signal for rendering.
         self.main.run_threaded(self.save_and_make_worker, None, self.main.default_error_handler, None, output_path)
 
     def save_and_make_worker(self, output_path: str):
         self.main.image_ctrl.save_current_image_state()
         temp_dir = tempfile.mkdtemp()
+        render_queue = []
         try:            
             if self.main.webtoon_mode:
                 #  PASS 1: Pre-build a complete, up-to-date state map for ALL pages
@@ -47,13 +51,11 @@ class ProjectController:
                         viewer_state = self.main.image_states[file_path].get('viewer_state', {}).copy()
                     all_pages_current_state[file_path] = {'viewer_state': viewer_state}
 
-                # PASS 2: Render each page using the complete state map
+                # PASS 2: Collect rendering tasks
                 for page_idx, file_path in enumerate(self.main.image_files):
                     bname = os.path.basename(file_path)
                     rgb_img = self.main.load_image(file_path)
 
-                    renderer = ImageSaveRenderer(rgb_img)
-                    
                     # Use the pre-built, up-to-date state for this page.
                     viewer_state = all_pages_current_state[file_path]['viewer_state']
                     
@@ -63,7 +65,7 @@ class ProjectController:
                         'image_states': all_pages_current_state
                     })()
 
-                    renderer.apply_patches(self.main.image_patches.get(file_path, []))
+                    # patches = self.main.image_patches.get(file_path, [])
                     
                     # Export Detailed Web JSON if requested
                     export_settings = self.main.settings_page.get_export_settings()
@@ -94,18 +96,22 @@ class ProjectController:
                         with open(json_path, 'w', encoding='UTF-8') as f:
                             json.dump(web_data, f, ensure_ascii=False, indent=2)
 
-                    renderer.add_state_to_image(viewer_state, page_idx, temp_main_page_context)
-                    sv_pth = os.path.join(temp_dir, bname)
-                    renderer.save_image(sv_pth)
+                    sv_pth = os.path.normpath(os.path.join(temp_dir, bname))
+                    render_queue.append({
+                        'image': rgb_img,
+                        'sv_pth': sv_pth,
+                        'viewer_state': viewer_state,
+                        'patches': self.main.image_patches.get(file_path, []),
+                        'page_idx': page_idx,
+                        'main_page': temp_main_page_context
+                    })
             else:
-                # Regular mode: use original logic
+                # Regular mode
                 for file_path in self.main.image_files:
                     bname = os.path.basename(file_path)
                     rgb_img = self.main.load_image(file_path)
 
-                    renderer = ImageSaveRenderer(rgb_img)
                     viewer_state = self.main.image_states[file_path]['viewer_state']
-                    renderer.apply_patches(self.main.image_patches.get(file_path, []))
                     
                     # Export Detailed Web JSON if requested
                     export_settings = self.main.settings_page.get_export_settings()
@@ -136,15 +142,37 @@ class ProjectController:
                         with open(json_path, 'w', encoding='UTF-8') as f:
                             json.dump(web_data, f, ensure_ascii=False, indent=2)
 
-                    renderer.add_state_to_image(viewer_state)
-                    sv_pth = os.path.join(temp_dir, bname)
-                    renderer.save_image(sv_pth)
+                    sv_pth = os.path.normpath(os.path.join(temp_dir, bname))
+                    render_queue.append({
+                        'image': rgb_img,
+                        'sv_pth': sv_pth,
+                        'viewer_state': viewer_state,
+                        'patches': self.main.image_patches.get(file_path, [])
+                    })
 
-            # Call make function
+            # Emit all at once to main thread
+            if render_queue:
+                # We need a blocking wait here or a callback to 'make'
+                # For simplicity, we can emit and have the main thread call 'make' after finishing.
+                # But since we're already in a thread, we can use a local event loop or just
+                # accept that 'make' will be called by the main thread.
+                # Refactoring 'make' to be called after rendering.
+                self.main.render_batch_requested.emit(render_queue)
+                
+                # Wait for rendering to finish (HACK: using a simple loop check or just delegate everything)
+                # Better: delegate 'make' to the main thread as well in a special task.
+                self.main.render_batch_requested.emit(render_queue + [{'action': 'make', 'temp_dir': temp_dir, 'output_path': output_path}])
+                return # Don't cleanup or make here
+
+            # Call make function (if no rendering needed?)
             make(temp_dir, output_path)
+        except Exception:
+            import traceback
+            traceback.print_exc()
         finally:
-            # Clean up temp directory
-            shutil.rmtree(temp_dir)
+            # Clean up temp directory (only if not delegating)
+            if not render_queue:
+                shutil.rmtree(temp_dir)
 
     def _create_text_items_state_from_scene(self, page_idx: int) -> dict:
         """
@@ -427,11 +455,14 @@ class ProjectController:
 
             # Save Clean Image (Inpainted)
             self.main.progress_update.emit(page_idx, len(self.main.image_files), 5, 10, False)
-            renderer = ImageSaveRenderer(rgb_img)
-            renderer.apply_patches(self.main.image_patches.get(file_path, []))
-            # We DON'T call add_state_to_image here because we want clean images
-            sv_pth = os.path.join(images_dir, bname)
-            renderer.save_image(sv_pth)
+            sv_pth = os.path.normpath(os.path.join(images_dir, bname))
+            render_task = {
+                'image': rgb_img,
+                'sv_pth': sv_pth,
+                'viewer_state': {'text_items_state': []}, # Clean image
+                'patches': self.main.image_patches.get(file_path, [])
+            }
+            self.main.render_batch_requested.emit([render_task])
 
             # Save Detailed JSON
             self.main.progress_update.emit(page_idx, len(self.main.image_files), 8, 10, False)

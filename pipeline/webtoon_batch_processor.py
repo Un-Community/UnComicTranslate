@@ -50,6 +50,7 @@ class WebtoonBatchProcessor:
         self.block_detection = block_detection_handler
         self.inpainting = inpainting_handler
         self.ocr_handler = ocr_handler
+        self.render_queue = []
         
         # Virtual page settings
         self.max_virtual_height = 2000  # Maximum height for virtual pages
@@ -73,10 +74,10 @@ class WebtoonBatchProcessor:
         self.edge_threshold = 50  # pixels from edge to consider as "near edge"
         
     def skip_save(self, directory, timestamp, base_name, extension, archive_bname, image):
-        path = os.path.join(directory, f"comic_translate_{timestamp}", "translated_images", archive_bname)
+        path = os.path.normpath(os.path.join(directory, f"comic_translate_{timestamp}", "translated_images", archive_bname))
         if not os.path.exists(path):
             os.makedirs(path, exist_ok=True)
-        imk.write_image(os.path.join(path, f"{base_name}_translated{extension}"), image)
+        imk.write_image(os.path.normpath(os.path.join(path, f"{base_name}_translated{extension}")), image)
 
     def log_skipped_image(self, directory, timestamp, image_path, reason="", full_traceback=""):
         skipped_file = os.path.join(directory, f"comic_translate_{timestamp}", "skipped_images.txt")
@@ -838,7 +839,8 @@ class WebtoonBatchProcessor:
     
     def _check_and_render_page(self, p_idx: int, total_images: int, image_list: List[str], timestamp: str, physical_to_virtual_mapping: Dict):
         """
-        Checks if a page and its neighbors are ready, and if so, prepares, renders, and saves the page.
+        Calculates the complete block list for a physical page and adds it to the render queue.
+        This no longer renders directly, but prepares data for main-thread rendering.
         """
         # A page is ready to be rendered if its own live data is final, and it hasn't already been rendered.
         if self.physical_page_status.get(p_idx) != PageStatus.LIVE_DATA_FINALIZED:
@@ -851,7 +853,7 @@ class WebtoonBatchProcessor:
 
         # If both the page and its neighbors are ready, we can proceed with the final render.
         if prev_page_ready and next_page_ready:
-            logger.info(f"Page {p_idx} and its neighbors' states are ready. Proceeding with final render.")
+            logger.info(f"Page {p_idx} and its neighbors' states are ready. Preparing data for final render queue.")
             image_path = image_list[p_idx]
             
             # Ensure virtual pages exist for this index before proceeding.
@@ -869,15 +871,13 @@ class WebtoonBatchProcessor:
 
             # Mark the page as fully rendered and saved.
             self.physical_page_status[p_idx] = PageStatus.RENDERED
-            logger.info(f"Successfully rendered and saved physical page {p_idx}.")
+            logger.info(f"Successfully queued physical page {p_idx} for rendering.")
 
     def _save_final_rendered_page(self, page_idx: int, image_path: str, timestamp: str):
         """
-        A consolidated function that starts with the ORIGINAL image, applies the pre-calculated 
-        inpaint patches, renders text (including spanning items), and saves the final output file.
-        This is called only when the page and its neighbors have their data ready.
+        Prepares data for the final rendering process and adds it to the main-thread queue.
         """
-        logger.info(f"Starting final render process for page {page_idx} at path: {image_path}")
+        logger.info(f"Queuing final render process for page {page_idx} at path: {image_path}")
 
         # Start with the ORIGINAL, un-inpainted image.
         image = imk.read_image(image_path)
@@ -907,10 +907,6 @@ class WebtoonBatchProcessor:
             self.log_skipped_image(directory, timestamp, image_path, reason)
             return
         
-        renderer = ImageSaveRenderer(image)
-        patches = self.final_patches_for_save.get(image_path, [])
-        renderer.apply_patches(patches)
-
         # Intermediate Exports
         settings_page = self.main_page.settings_page
         export_settings = settings_page.get_export_settings()
@@ -921,8 +917,31 @@ class WebtoonBatchProcessor:
             if not os.path.exists(path):
                 os.makedirs(path, exist_ok=True)
             # The image on the renderer is inpainted but has no text yet. Perfect time to save.
-            cleaned_image_rgb = renderer.render_to_image()  # Already in RGB format
-            imk.write_image(os.path.join(path, f"{base_name}_cleaned{extension}"), cleaned_image_rgb)
+            temp_renderer = ImageSaveRenderer(image)
+            temp_renderer.apply_patches(self.final_patches_for_save.get(image_path, []))
+            try:
+                cleaned_image_rgb = temp_renderer.render_to_image()  # Already in RGB format
+                cleaned_sv_pth = os.path.normpath(os.path.join(path, f"{base_name}_cleaned{extension}"))
+                imk.write_image(cleaned_sv_pth, cleaned_image_rgb)
+            except Exception as e:
+                logger.error(f"Failed to render cleaned image in background thread (as expected if Qt fails): {e}")
+                # We can't do much here if it's already in a thread, but this specific call
+                # ONLY uses render_to_image() which MIGHT work if no TextBlockItems are added.
+                # However, it's safer to avoid it or accept the risk for "Cleaned" only.
+
+        # Queue rendering task for main thread
+        render_save_dir = os.path.join(directory, f"comic_translate_{timestamp}", "translated_images", archive_bname)
+        if not os.path.exists(render_save_dir):
+            os.makedirs(render_save_dir, exist_ok=True)
+        sv_pth = os.path.normpath(os.path.join(render_save_dir, f"{base_name}_translated{extension}"))
+
+        render_task = {
+            'image': image,
+            'sv_pth': sv_pth,
+            'viewer_state': self.main_page.image_states[image_path]['viewer_state'].copy(),
+            'patches': self.final_patches_for_save.get(image_path, [])
+        }
+        self.render_queue.append(render_task)
 
         # Get final block list for text exports
         blk_list = self.main_page.image_states[image_path].get('blk_list', [])
@@ -988,6 +1007,7 @@ class WebtoonBatchProcessor:
         timestamp = datetime.now().strftime("%b-%d-%Y_%I-%M-%S%p")
         image_list = selected_paths if selected_paths is not None else self.main_page.image_files
         total_images = len(image_list)
+        self.render_queue = []
 
         if total_images < 1:
             logger.warning("No images to process")
@@ -1145,6 +1165,38 @@ class WebtoonBatchProcessor:
         for p_idx in range(total_images):
             if self.physical_page_status.get(p_idx) == PageStatus.LIVE_DATA_FINALIZED:
                 self._check_and_render_page(p_idx, total_images, image_list, timestamp, physical_to_virtual_mapping)
+
+        # Emit the render queue to the main thread
+        if self.render_queue:
+            logger.info(f"Queueing {len(self.render_queue)} webtoon images for rendering on main thread")
+            
+            archive_tasks = []
+            archive_info_list = self.main_page.file_handler.archive_info
+            if archive_info_list:
+                save_as_settings = self.main_page.settings_page.get_export_settings()['save_as']
+                for archive_index, archive in enumerate(archive_info_list):
+                    archive_path = archive['archive_path']
+                    archive_bname = os.path.splitext(os.path.basename(archive_path))[0].strip()
+                    archive_directory = os.path.dirname(archive_path)
+                    archive_ext = os.path.splitext(archive_path)[1]
+                    save_as_ext = f".{save_as_settings.get(archive_ext.lower(), 'cbz')}"
+
+                    save_dir = os.path.normpath(os.path.join(archive_directory, f"comic_translate_{timestamp}", "translated_images", archive_bname))
+                    check_from = os.path.normpath(os.path.join(archive_directory, f"comic_translate_{timestamp}"))
+                    
+                    archive_tasks.append({
+                        'action': 'make_batch_archive',
+                        'save_as_ext': save_as_ext,
+                        'save_dir': save_dir,
+                        'archive_directory': archive_directory,
+                        'archive_bname': archive_bname,
+                        'check_from': check_from,
+                        'index_input': total_images + archive_index,
+                        'total_images': total_images
+                    })
+            
+            self.main_page.render_batch_requested.emit(self.render_queue + archive_tasks)
+            return
 
         # Step 4: Handle archive creation
         archive_info_list = self.main_page.file_handler.archive_info

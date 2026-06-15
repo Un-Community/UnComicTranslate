@@ -15,6 +15,7 @@ from app.ui.dayu_widgets.message import MMessage
 from app.thread_worker import GenericWorker
 
 from app.ui.canvas.text_item import TextBlockItem
+from app.ui.canvas.save_renderer import ImageSaveRenderer
 from app.ui.commands.box import DeleteBoxesCommand
 
 from modules.utils.textblock import TextBlock
@@ -47,6 +48,7 @@ class ComicTranslate(ComicTranslateUI):
     progress_update = QtCore.Signal(int, int, int, int, bool)
     image_skipped = QtCore.Signal(str, str, str)
     blk_rendered = QtCore.Signal(str, int, object)
+    render_batch_requested = QtCore.Signal(list)
     download_event = QtCore.Signal(str, str)  # status, name
 
     def __init__(self, parent=None):
@@ -93,6 +95,7 @@ class ComicTranslate(ComicTranslateUI):
         self.patches_processed.connect(self.image_ctrl.on_inpaint_patches_processed)
         self.progress_update.connect(self.update_progress)
         self.blk_rendered.connect(self.text_ctrl.on_blk_rendered)
+        self.render_batch_requested.connect(self.on_render_batch_requested)
         self.download_event.connect(self.on_download_event)
 
         self.connect_ui_elements()
@@ -783,6 +786,115 @@ class ComicTranslate(ComicTranslateUI):
                 finally:
                     self._download_message = None
                 # Do not change the main window loading spinner here; it's managed by the running task lifecycle
+
+    def on_render_batch_requested(self, render_queue: list):
+        """Processes the render queue on the main thread."""
+        print(f"DEBUG: Main thread received render queue with {len(render_queue)} items")
+        total_render_tasks = len([t for t in render_queue if 'action' not in t])
+        render_idx = 0
+        
+        for i, task in enumerate(render_queue):
+            if not isinstance(task, dict):
+                continue
+            
+            # Special action handling
+            if 'action' in task:
+                print(f"DEBUG: Processing action {task['action']}")
+                if task['action'] == 'make':
+                    try:
+                        from modules.utils.archives import make
+                        make(task['temp_dir'], task['output_path'])
+                    finally:
+                        try:
+                            shutil.rmtree(task['temp_dir'])
+                        except Exception:
+                            pass
+                elif task['action'] == 'make_batch_archive':
+                    try:
+                        idx = task['index_input']
+                        total_imgs = task['total_images']
+                        self.progress_update.emit(idx, total_imgs, 1, 3, True)
+                        
+                        output_base_name = f"{task['archive_bname']}"
+                        from modules.utils.archives import make
+                        make(save_as_ext=task['save_as_ext'], 
+                             input_dir=task['save_dir'], 
+                             output_dir=task['archive_directory'], 
+                             output_base_name=output_base_name)
+                        
+                        self.progress_update.emit(idx, total_imgs, 3, 3, True)
+                        
+                        if os.path.exists(task['save_dir']):
+                            try:
+                                shutil.rmtree(task['save_dir'])
+                            except Exception:
+                                pass
+                        if os.path.exists(task['check_from']) and not os.listdir(task['check_from']):
+                            try:
+                                shutil.rmtree(task['check_from'])
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Batch archive creation failed: {e}")
+                continue
+
+            try:
+                # Log progress
+                sv_pth = os.path.normpath(task['sv_pth'])
+                print(f"DEBUG: Starting render for image {render_idx+1}/{total_render_tasks}: {sv_pth}")
+                
+                # Ensure directory exists before rendering/saving
+                dir_name = os.path.dirname(sv_pth)
+                if dir_name:
+                    os.makedirs(dir_name, exist_ok=True)
+                
+                # Update progress bar
+                self.progress_update.emit(render_idx, total_render_tasks, 10, 10, True)
+                render_idx += 1
+                
+                print("DEBUG: Initializing ImageSaveRenderer")
+                # Pre-verify image data
+                img_data = task['image']
+                if img_data is None or not isinstance(img_data, np.ndarray):
+                    print(f"DEBUG: Invalid image data type: {type(img_data)}")
+                    continue
+
+                renderer = ImageSaveRenderer(img_data)
+                
+                print("DEBUG: Applying patches")
+                renderer.apply_patches(task['patches'])
+                
+                print("DEBUG: Adding state to image")
+                renderer.add_state_to_image(
+                    task['viewer_state'], 
+                    task.get('page_idx'), 
+                    task.get('main_page')
+                )
+                
+                print("DEBUG: Calling renderer.save_image")
+                renderer.save_image(sv_pth)
+                
+                print("DEBUG: Cleaning up renderer resources")
+                if hasattr(renderer, 'scene') and renderer.scene:
+                    renderer.scene.clear()
+                del renderer
+                
+                # Force process events to keep UI responsive
+                QtCore.QCoreApplication.processEvents()
+                print("DEBUG: Image processed successfully")
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Main thread rendering failed for {task.get('sv_pth')}: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Final GC after whole batch
+        import gc
+        gc.collect()
+        print("DEBUG: Batch rendering completed")
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_Left:
