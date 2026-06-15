@@ -519,8 +519,8 @@ class SettingsPage(QtWidgets.QWidget):
         msg_box = QtWidgets.QMessageBox(self)
         msg_box.setWindowTitle(self.tr("Restart Required"))
         msg_box.setText(self.tr("Please restart the application for the language changes to take effect."))
-        msg_box.setIcon(QtWidgets.QMessageBox.Information)
-        msg_box.setStandardButtons(QtWidgets.QMessageBox.Ok)
+        msg_box.setIcon(QtWidgets.QMessageBox.Icon.Information)
+        msg_box.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok)
         msg_box.exec()
 
     def get_min_font_size(self):

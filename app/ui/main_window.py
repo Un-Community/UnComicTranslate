@@ -311,7 +311,7 @@ class ComicTranslateUI(QtWidgets.QMainWindow):
 
         button_config_list = [
             {"text": self.tr("Detect Text"), "dayu_type": MPushButton.DefaultType, "enabled": False},
-            {"text": self.tr("Recognize Text"), "dayu_type": MPushButton.DefaultType, "enabled": False},
+            {"text": self.tr("OCR"), "dayu_type": MPushButton.DefaultType, "enabled": False},
             {"text": self.tr("Get Translations"), "dayu_type": MPushButton.DefaultType, "enabled": False},
             {"text": self.tr("Segment Text"), "dayu_type": MPushButton.DefaultType, "enabled": False},
             {"text": self.tr("Clean Image"), "dayu_type": MPushButton.DefaultType, "enabled": False},
@@ -828,6 +828,9 @@ class ComicTranslateUI(QtWidgets.QMainWindow):
         settings = QSettings("UnComicLabs", "UnComicTranslate")
         selected_fonts = settings.value('selected_fonts', None)
         
+        # Save the current selection to restore it if possible
+        current_font = self.font_dropdown.currentText()
+        
         # Block signals while we update
         self.font_dropdown.blockSignals(True)
         
@@ -846,7 +849,9 @@ class ComicTranslateUI(QtWidgets.QMainWindow):
             # No fonts selected - clear dropdown
             self.font_dropdown.clear()
         else:
-            # Load ONLY selected fonts
+            # Rebuild the dropdown
+            self.font_dropdown.clear()
+            
             font_db = QFontDatabase()
             system_fonts = font_db.families()
             
@@ -860,13 +865,17 @@ class ComicTranslateUI(QtWidgets.QMainWindow):
                     if font_family in selected_fonts:
                         self.add_custom_font(font_path)
             
-            # Remove fonts not in selected list
-            # Go backwards to avoid index issues
-            for i in range(self.font_dropdown.count() - 1, -1, -1):
-                font_name = self.font_dropdown.itemText(i)
-                if font_name not in selected_fonts:
-                    self.font_dropdown.removeItem(i)
+            # Add system fonts that are selected
+            for font in system_fonts:
+                if font in selected_fonts:
+                    self.font_dropdown.addItem(font)
         
+        # Try to restore selection
+        if current_font and self.font_dropdown.findText(current_font) >= 0:
+            self.font_dropdown.setCurrentText(current_font)
+        elif self.font_dropdown.count() > 0:
+            self.font_dropdown.setCurrentIndex(0)
+            
         self.font_dropdown.blockSignals(False)
         
         # Force refresh the dropdown

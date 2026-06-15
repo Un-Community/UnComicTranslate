@@ -157,6 +157,9 @@ class TextRenderingPage(QtWidgets.QWidget):
             
             if main_window:
                 main_window.load_selected_fonts()
+                # Apply changes to current block if any
+                if hasattr(main_window, 'text_ctrl'):
+                    main_window.text_ctrl.on_font_dropdown_change(main_window.font_dropdown.currentText())
     
     def remove_font_from_list(self, font_family: str):
         """Remove a font checkbox from the list"""
