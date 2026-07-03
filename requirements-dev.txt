@@ -1,2 +1,2 @@
 -r requirements.txt
-pytest-qt==4.4.0
+pytest-qt==4.5.0
