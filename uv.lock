@@ -392,7 +392,7 @@ requires-dist = [
     { name = "pyclipper", specifier = ">=1.3.0.post6" },
     { name = "pyside6", specifier = ">=6.11.1" },
     { name = "pythainlp", specifier = ">=5.1.2" },
-    { name = "rarfile", specifier = ">=4.1" },
+    { name = "rarfile", specifier = ">=4.3" },
     { name = "requests", specifier = ">=2.31.0" },
     { name = "setuptools", specifier = ">=82.0.1" },
     { name = "shapely", specifier = ">=2.1.1" },
@@ -1580,11 +1580,11 @@ wheels = [
 
 [[package]]
 name = "rarfile"
-version = "4.2"
+version = "4.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/26/3f/3118a797444e7e30e784921c4bfafb6500fb288a0c84cb8c32ed15853c16/rarfile-4.2.tar.gz", hash = "sha256:8e1c8e72d0845ad2b32a47ab11a719bc2e41165ec101fd4d3fe9e92aa3f469ef", size = 153476, upload-time = "2024-04-03T17:10:53.798Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/80/442df102d81a10d31ec2cf73d6f411f5575e3bb7adc0aaa45cbe693a37b6/rarfile-4.3.tar.gz", hash = "sha256:0d8b5a7ffb9f8e9a7b002f2398905e4420c0cb373e799b48e48f418db9c8816a", size = 154855, upload-time = "2026-07-08T19:21:54.072Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/62/fc/ab37559419ca36dd8dd317c3a98395ed4dcee2beeb28bf6059b972906727/rarfile-4.2-py3-none-any.whl", hash = "sha256:8757e1e3757e32962e229cab2432efc1f15f210823cc96ccba0f6a39d17370c9", size = 29052, upload-time = "2024-04-03T17:10:52.632Z" },
+    { url = "https://files.pythonhosted.org/packages/78/2d/4a161de993dab0baac89b8c5b9765f420e8cc5239c5c82e0f51cb41e5a74/rarfile-4.3-py3-none-any.whl", hash = "sha256:f9dd2f8bd811b2e30fb074aa176f972f51633aa41cf909db3f2921ed040e1128", size = 29583, upload-time = "2026-07-08T19:21:52.904Z" },
 ]
 
 [[package]]
