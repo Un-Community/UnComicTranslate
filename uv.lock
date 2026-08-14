@@ -391,7 +391,7 @@ requires-dist = [
     { name = "py7zr", specifier = ">=1.1.3" },
     { name = "pyclipper", specifier = ">=1.3.0.post6" },
     { name = "pyside6", specifier = ">=6.11.1" },
-    { name = "pythainlp", specifier = ">=5.1.2" },
+    { name = "pythainlp", specifier = ">=5.3.5" },
     { name = "rarfile", specifier = ">=4.4" },
     { name = "requests", specifier = ">=2.34.2" },
     { name = "setuptools", specifier = ">=83.0.0" },
@@ -1500,14 +1500,14 @@ wheels = [
 
 [[package]]
 name = "pythainlp"
-version = "5.3.4"
+version = "5.3.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/56/47/2364543c559eacdc63633a3f29d7467a36a33089f7a8b226a247dd12de7e/pythainlp-5.3.4.tar.gz", hash = "sha256:e66fd76fb5931834fd4e32ed54337ec62350d7654f187850e4dd4f915e9f624f", size = 19306201, upload-time = "2026-04-02T18:42:46.044Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8b/5a/f893095176843b998b93abac1df5976ce2e738366fb84784dfd7ee56c283/pythainlp-5.3.5.tar.gz", hash = "sha256:3be53b97e44fdfc55669705b31a2fe96546146d0c1d90f18999c9b04c4e50c83", size = 19306143, upload-time = "2026-07-29T18:47:29.05Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0c/bd/bedc1e416eb0fa2cb5eaa990207ae67dfaf02d4986f22d5ec372c0b97ae3/pythainlp-5.3.4-py3-none-any.whl", hash = "sha256:76744e51e27c895630bafd74f53a1f0aa8782cef2f7f02eebd6427fe8ce8d84d", size = 19849568, upload-time = "2026-04-02T18:42:42.384Z" },
+    { url = "https://files.pythonhosted.org/packages/0c/21/805d31f57a6b1d93b12a3007d04621789aaec2f11931098fc0e56f1fff3f/pythainlp-5.3.5-py3-none-any.whl", hash = "sha256:147a7a77c5c6d5b387b827ed3b00ee23c3665d242e9d021565cae4c3bca7b2c2", size = 19849547, upload-time = "2026-07-29T18:47:25.983Z" },
 ]
 
 [[package]]
